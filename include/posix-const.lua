@@ -17,7 +17,10 @@ local const = {
   O_NONBLOCK = 2048, -- 04000
 
   -- /usr/include/asm-generic/errno.h
+  -- Задан режим неблокируемого ввода вывода, а данные недоступны.
+  -- Эта ошибка означает, что программа должна вызвать функцию по вторно.
   EAGAIN = 11,
+  --
   EINTR = 4,
   EPROTO = 71, -- Protocol error
   EWOULDBLOCK = 103,

@@ -4,29 +4,28 @@ local ffi = require('ffi')
 local _ = require('include.ffi-socket')
 local const = require('include.posix-const')
 local escape_controls = require('include.escape-controls')
-local err = require('include.err')
+local perror = require('include.perror')
 
 local BUFSIZE = 1024
 local HOST = '0.0.0.0'
 local PORT = 9000
 
 local sizeof = ffi.sizeof
-local errno = ffi.errno
 local cast = ffi.cast
 local C = ffi.C
 
-local server_fd = C.socket(const.AF_INET, const.SOCK_STREAM, 0)
-if server_fd == -1 then
-  err('Create socket', errno())
+local sd = C.socket(const.AF_INET, const.SOCK_STREAM, 0)
+if sd == -1 then
+  perror('Create socket')
   os.exit(1)
 end
 
 local optval = ffi.new('int[1]', 1)
-local res = C.setsockopt(server_fd, const.SOL_SOCKET, const.SO_REUSEADDR,
+local res = C.setsockopt(sd, const.SOL_SOCKET, const.SO_REUSEADDR,
   optval, sizeof(optval)
 )
 if res == -1 then
-  err('setsockopt', errno())
+  perror('setsockopt')
   os.exit(1)
 end
 
@@ -35,15 +34,15 @@ addr.sin_family = const.AF_INET
 addr.sin_port = C.htons(PORT)
 addr.sin_addr.s_addr = C.inet_addr(HOST)
 
-local res = C.bind(server_fd, cast('struct sockaddr *', addr), sizeof(addr))
+local res = C.bind(sd, cast('struct sockaddr *', addr), sizeof(addr))
 if res == -1 then
-  err('bind', errno())
+  perror('bind')
   os.exit(1)
 end
 
-local res = C.listen(server_fd, const.SOMAXCONN)
+local res = C.listen(sd, const.SOMAXCONN)
 if res == -1 then
-  err('listen', errno())
+  perror('listen')
   os.exit(1)
 end
 
@@ -53,10 +52,10 @@ local buf = ffi.new('char[?]', BUFSIZE)
 local remote = ffi.new('struct sockaddr_in')
 
 while true do
-  local address_len = ffi.new('socklen_t[1]', ffi.sizeof(remote))
-  local conn_fd = ffi.C.accept(server_fd, ffi.cast('struct sockaddr *', remote), address_len)
+  local address_len = ffi.new('socklen_t[1]', sizeof(remote))
+  local conn_fd = ffi.C.accept(sd, ffi.cast('struct sockaddr *', remote), address_len)
   if conn_fd == -1 then
-    err(nil, errno())
+    perror()
     goto continue
   end
 
@@ -67,13 +66,12 @@ while true do
     )
   )
 
-
   -- Установка таймаута соединению на 5 секунд
   local timeout = ffi.new('struct timeval')
   timeout.tv_sec = 5
   timeout.tv_usec = 0
-  if C.setsockopt(conn_fd, 1, 20, ffi.cast('const void *', timeout), ffi.sizeof(timeout)) < 0 then
-    err('setsockopt', errno())
+  if C.setsockopt(conn_fd, 1, 20, ffi.cast('const void *', timeout), sizeof(timeout)) < 0 then
+    perror('setsockopt')
     C.close(conn_fd)
     goto continue
   end
@@ -82,10 +80,10 @@ while true do
   local total_read = 0
   local data = ''
   while true do
-    local nread = C.read(conn_fd, buf + total_read, BUFSIZE)
+    local nread = C.recv(conn_fd, buf + total_read, BUFSIZE, 0)
 
     if nread == -1 then
-      err('recv. Close connection', errno())
+      perror('recv. Close connection')
       C.close(conn_fd)
 
       goto continue
@@ -97,8 +95,6 @@ while true do
     end
 
     total_read = total_read + nread
-    print('total_read', total_read)
-    print('nread', nread)
     data = data .. ffi.string(buf, nread)
 
     -- Предполагаем, что данные были прочитаны
@@ -109,7 +105,7 @@ while true do
     end
   end
 
-  print('Данные от клиента:')
+  print('\nДанные от клиента:')
   print(escape_controls(data))
 
   -- Отправка прочитанных данных клиенту
@@ -119,7 +115,7 @@ while true do
     local nsend = C.send(conn_fd, send_data, #send_data, 0)
 
     if nsend == -1 then
-      err('send. Close connection', errno())
+      perror('send. Close connection')
       C.close(conn_fd)
       goto continue
     end
@@ -132,4 +128,4 @@ while true do
   ::continue::
 end
 
-C.close(server_fd)
+C.close(sd)
